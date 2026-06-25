@@ -62,23 +62,51 @@ jobs:
         run: |
           python - <<'EOF'
           import json, os, sys
+          creds_str = os.environ.get("CREDS", "").strip()
+          if not creds_str:
+              print("Error: CLOUD_CREDENTIALS secret is empty or not set.")
+              sys.exit(1)
+          
+          print(f"Diagnostics: CLOUD_CREDENTIALS length is {len(creds_str)} characters.")
+          print(f"Diagnostics: Starts with '{creds_str[0]}' and ends with '{creds_str[-1]}'")
+          
           try:
-              creds = json.loads(os.environ["CREDS"])
+              creds = json.loads(creds_str)
+              creds_lower = {k.lower().strip(): v for k, v in creds.items()}
               with open(os.environ["GITHUB_ENV"], "a") as f:
-                  if "aws_access_key_id" in creds:
-                      f.write(f"AWS_ACCESS_KEY_ID={creds['aws_access_key_id']}\n")
-                      f.write(f"AWS_SECRET_ACCESS_KEY={creds['aws_secret_access_key']}\n")
-                      print("AWS credentials detected and configured.")
-                  else:
+                  if "aws_access_key_id" in creds_lower:
+                      f.write(f"AWS_ACCESS_KEY_ID={creds_lower['aws_access_key_id'].strip()}\n")
+                      f.write(f"AWS_SECRET_ACCESS_KEY={creds_lower['aws_secret_access_key'].strip()}\n")
+                      print("Successfully configured AWS credentials from JSON.")
+                  elif "private_key" in creds_lower or "project_id" in creds_lower:
                       with open("/tmp/sa-key.json", "w") as kf:
                           json.dump(creds, kf)
                       f.write("GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa-key.json\n")
-                      print("GCP credentials detected and configured.")
-          except Exception as e:
-              with open(os.environ["GITHUB_ENV"], "a") as f:
-                  f.write(f"AZURE_STORAGE_CONNECTION_STRING={os.environ['CREDS']}\n")
-              print("Azure or raw credentials configured.")
+                      print("Successfully configured GCP credentials from JSON.")
+                  else:
+                      print("Error: JSON credentials do not contain 'aws_access_key_id' or GCP keys.")
+                      print(f"Available keys in JSON: {list(creds.keys())}")
+                      sys.exit(1)
+          except json.JSONDecodeError as e:
+              print(f"CLOUD_CREDENTIALS is not valid JSON ({e}). Attempting plain text parsing...")
+              lines = [line.strip() for line in creds_str.split('\n') if line.strip() and not line.startswith('#')]
+              parsed_env = {}
+              for line in lines:
+                  if '=' in line:
+                      k, v = line.split('=', 1)
+                      parsed_env[k.strip().upper()] = v.strip().strip('"').strip("'")
+              
+              if "AWS_ACCESS_KEY_ID" in parsed_env and "AWS_SECRET_ACCESS_KEY" in parsed_env:
+                  with open(os.environ["GITHUB_ENV"], "a") as f:
+                      f.write(f"AWS_ACCESS_KEY_ID={parsed_env['AWS_ACCESS_KEY_ID']}\n")
+                      f.write(f"AWS_SECRET_ACCESS_KEY={parsed_env['AWS_SECRET_ACCESS_KEY']}\n")
+                  print("Successfully configured AWS credentials from plain text key=value pairs.")
+              else:
+                  with open(os.environ["GITHUB_ENV"], "a") as f:
+                      f.write(f"AZURE_STORAGE_CONNECTION_STRING={creds_str}\n")
+                  print("Configured raw credentials as AZURE_STORAGE_CONNECTION_STRING.")
           EOF
+
 
       - name: Pull data with DVC
         run: dvc pull data/train_phase1.csv.dvc data/eval.csv.dvc
