@@ -1,7 +1,10 @@
 mlflow.db
 mlartifacts/
+mlruns/
 models/
 outputs/
+.pytest_cache/
+.ipynb_checkpoints/
 data/train_phase1.csv
 data/eval.csv
 data/train_phase2.csv
@@ -11,3 +14,5 @@ sa-key.json
 __pycache__/
 *.pyc
 .DS_Store
+aws/
+awscliv2.zip

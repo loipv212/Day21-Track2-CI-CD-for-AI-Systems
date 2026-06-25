@@ -1,37 +1,42 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from google.cloud import storage
 import joblib
 import os
 
 app = FastAPI()
 
-GCS_BUCKET = os.environ["GCS_BUCKET"]
+GCS_BUCKET = os.environ.get("GCS_BUCKET") or os.environ.get("CLOUD_BUCKET")
 GCS_MODEL_KEY = "models/latest/model.pkl"
 MODEL_PATH = os.path.expanduser("~/models/model.pkl")
 
 
 def download_model():
     """
-    Tai file model.pkl tu GCS ve may khi server khoi dong.
+    Tai file model.pkl tu GCS/S3 ve may khi server khoi dong.
 
-    Ham nay duoc goi mot lan khi module duoc import. Su dung
-    GOOGLE_APPLICATION_CREDENTIALS de xac thuc (duoc dat trong systemd service).
+    Ham nay duoc goi mot lan khi module duoc import.
     """
-    # TODO 1: Tao storage.Client()
-    # client = storage.Client()
+    if not GCS_BUCKET:
+        raise ValueError("Environment variable GCS_BUCKET or CLOUD_BUCKET must be set")
 
-    # TODO 2: Lay bucket va blob tuong ung
-    # bucket = client.bucket(GCS_BUCKET)
-    # blob   = bucket.blob(GCS_MODEL_KEY)
+    os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
 
-    # TODO 3: Tai file model xuong may
-    # blob.download_to_filename(MODEL_PATH)
-
-    # TODO 4: In thong bao thanh cong
-    # print("Model da duoc tai xuong tu GCS.")
-
-    pass  # xoa dong nay sau khi hoan thanh tat ca TODO ben tren
+    try:
+        # Thu tai tu AWS S3 bang boto3
+        import boto3
+        print("Dang tai model tu AWS S3...")
+        s3 = boto3.client('s3')
+        s3.download_file(GCS_BUCKET, GCS_MODEL_KEY, MODEL_PATH)
+        print("Model da duoc tai xuong tu S3.")
+    except ImportError:
+        # Fallback sang Google Cloud Storage
+        from google.cloud import storage
+        print("Dang tai model tu Google Cloud Storage...")
+        client = storage.Client()
+        bucket = client.bucket(GCS_BUCKET)
+        blob   = bucket.blob(GCS_MODEL_KEY)
+        blob.download_to_filename(MODEL_PATH)
+        print("Model da duoc tai xuong tu GCS.")
 
 
 download_model()
@@ -50,8 +55,7 @@ def health():
 
     Tra ve: {"status": "ok"}
     """
-    # TODO 5: Tra ve dict {"status": "ok"}
-    pass  # xoa dong nay sau khi hoan thanh
+    return {"status": "ok"}
 
 
 @app.post("/predict")
@@ -67,17 +71,15 @@ def predict(req: PredictRequest):
         chlorides, free_sulfur_dioxide, total_sulfur_dioxide, density,
         pH, sulphates, alcohol, wine_type
     """
-    # TODO 6: Kiem tra so luong dac trung.
-    # Neu len(req.features) != 12, raise HTTPException(status_code=400, ...)
+    if len(req.features) != 12:
+        raise HTTPException(status_code=400, detail="Expected 12 features (wine quality)")
 
-    # TODO 7: Goi model.predict([req.features]) de lay ket qua du doan.
-    # pred = model.predict(...)
+    pred = int(model.predict([req.features])[0])
 
-    # TODO 8: Tra ve dict chua "prediction" (int) va "label" (string).
-    # Nhan tuong ung: 0 -> "thap", 1 -> "trung_binh", 2 -> "cao"
-    # return {"prediction": ..., "label": ...}
+    labels = {0: "thap", 1: "trung_binh", 2: "cao"}
+    label = labels.get(pred, "khong_xac_dinh")
 
-    pass  # xoa dong nay sau khi hoan thanh tat ca TODO ben tren
+    return {"prediction": pred, "label": label}
 
 
 if __name__ == "__main__":
